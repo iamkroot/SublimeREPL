@@ -7,10 +7,13 @@ import os
 import glob
 import os.path
 import socket
+import subprocess as sp
 from functools import partial
 from contextlib import closing
 
 SETTINGS_FILE = "SublimeREPL.sublime-settings"
+ACTIVATE_FILE = sublime.load_settings(SETTINGS_FILE).get("activate_file", "activate_this.py")
+
 
 class ClojureAutoTelnetRepl(sublime_plugin.WindowCommand):
     def is_running(self, port_str):
@@ -78,7 +81,7 @@ def scan_for_virtualenvs(venv_paths):
     found_dirs = set()
     for venv_path in venv_paths:
         p = os.path.expanduser(venv_path)
-        pattern = os.path.join(p, "*", bin_dir, "activate_this.py")
+        pattern = os.path.join(p, "*", bin_dir, ACTIVATE_FILE)
         found_dirs.update(list(map(os.path.dirname, glob.glob(pattern))))
     return sorted(found_dirs)
 
@@ -92,23 +95,41 @@ class PythonVirtualenvRepl(sublime_plugin.WindowCommand):
         if index == -1:
             return
         (name, directory) = choices[index]
-        activate_file = os.path.join(directory, "activate_this.py")
+        activate_file = os.path.join(directory, ACTIVATE_FILE)
         python_executable = os.path.join(directory, "python")
         path_separator = ":"
         if os.name == "nt":
             python_executable += ".exe"  # ;-)
             path_separator = ";"
 
+        if activate_file.endswith('.py'):
+            # use default method
+            extend_env = {
+                "PATH": directory + path_separator + "{PATH}",
+                "SUBLIMEREPL_ACTIVATE_THIS": activate_file,
+                "PYTHONIOENCODING": "utf-8",
+            }
+        else:
+            # run the activate script and print the env to stdout
+            if os.name == "nt":
+                # activate file should be `activate.bat`
+                env_cmd = '"{}" && set'.format(activate_file)
+                env_output = sp.check_output(env_cmd, universal_newlines=True)
+            elif os.name == "posix":
+                # use the `activate` file
+                env_cmd = 'source "{}" && env'.format(activate_file)
+                env_output = sp.check_output(env_cmd, universal_newlines=True, shell=True)
+
+            # parse the env dumped to stdout
+            extend_env = dict(line.split("=", maxsplit=1) for line in env_output.splitlines() if "=" in line)
+            extend_env["PYTHONIOENCODING"] = "utf-8"
+
         self.window.run_command("repl_open",
             {
                 "encoding":"utf8",
                 "type": "subprocess",
                 "autocomplete_server": True,
-                "extend_env": {
-                    "PATH": directory + path_separator + "{PATH}",
-                    "SUBLIMEREPL_ACTIVATE_THIS": activate_file,
-                    "PYTHONIOENCODING": "utf-8"
-                },
+                "extend_env": extend_env,
                 "cmd": [python_executable, "-u", "${packages}/SublimeREPL/config/Python/ipy_repl.py"],
                 "cwd": "$file_path",
                 "encoding": "utf8",
