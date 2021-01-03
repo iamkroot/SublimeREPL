@@ -111,17 +111,17 @@ class PythonVirtualenvRepl(sublime_plugin.WindowCommand):
             }
         else:
             # run the activate script and print the env to stdout
-            if os.name == 'nt':
+            if os.name == "nt":
                 # activate file should be `activate.bat`
                 env_cmd = '"{}" && set'.format(activate_file)
                 env_output = sp.check_output(env_cmd, universal_newlines=True)
-            elif os.name == 'posix':
+            elif os.name == "posix":
                 # use the `activate` file
                 env_cmd = 'source "{}" && env'.format(activate_file)
                 env_output = sp.check_output(env_cmd, universal_newlines=True, shell=True)
 
             # parse the env dumped to stdout
-            extend_env = dict(line.split('=', maxsplit=1) for line in env_output.splitlines())
+            extend_env = dict(line.split("=", maxsplit=1) for line in env_output.splitlines() if "=" in line)
             extend_env["PYTHONIOENCODING"] = "utf-8"
 
         self.window.run_command("repl_open",
@@ -147,6 +147,7 @@ VENV_SCAN_CODE = """
 import os
 import glob
 import os.path
+
 venv_paths = channel.receive()
 bin_dir = "Scripts" if os.name == "nt" else "bin"
 found_dirs = set()
@@ -154,8 +155,10 @@ for venv_path in venv_paths:
     p = os.path.expanduser(venv_path)
     pattern = os.path.join(p, "*", bin_dir, "activate_this.py")
     found_dirs.update(map(os.path.dirname, glob.glob(pattern)))
+
 channel.send(found_dirs)
 channel.close()
+
 """
 
 class ExecnetVirtualenvRepl(sublime_plugin.WindowCommand):
@@ -208,6 +211,7 @@ class ExecnetVirtualenvRepl(sublime_plugin.WindowCommand):
                   "activate_file": activate_file,
                   "ps1": ps1
                  })
+
 
 
 
