@@ -7,10 +7,13 @@ import os
 import glob
 import os.path
 import socket
+import subprocess as sp
 from functools import partial
 from contextlib import closing
 
 SETTINGS_FILE = "SublimeREPL.sublime-settings"
+ACTIVATE_FILE = sublime.load_settings(SETTINGS_FILE).get("activate_file", "activate_this.py")
+
 
 class ClojureAutoTelnetRepl(sublime_plugin.WindowCommand):
     def is_running(self, port_str):
@@ -76,11 +79,9 @@ class ClojureAutoTelnetRepl(sublime_plugin.WindowCommand):
 def scan_for_virtualenvs(venv_paths):
     bin_dir = "Scripts" if os.name == "nt" else "bin"
     found_dirs = set()
-    ACTIVATE_FILE = sublime.load_settings(SETTINGS_FILE).get("activate_file", "activate_this.py")
     for venv_path in venv_paths:
         p = os.path.expanduser(venv_path)
         pattern = os.path.join(p, "*", bin_dir, ACTIVATE_FILE)
-        print(pattern)
         found_dirs.update(list(map(os.path.dirname, glob.glob(pattern))))
     return sorted(found_dirs)
 
@@ -94,8 +95,6 @@ class PythonVirtualenvRepl(sublime_plugin.WindowCommand):
         if index == -1:
             return
         (name, directory) = choices[index]
-        # new setting option
-        ACTIVATE_FILE = sublime.load_settings(SETTINGS_FILE).get("activate_file", "activate_this.py")
         activate_file = os.path.join(directory, ACTIVATE_FILE)
         python_executable = os.path.join(directory, "python")
         path_separator = ":"
@@ -103,21 +102,28 @@ class PythonVirtualenvRepl(sublime_plugin.WindowCommand):
             python_executable += ".exe"  # ;-)
             path_separator = ";"
 
-        if activate_file.endswith(".bat"):
-            import subprocess as sp
-            # run the activate script and print the env to stdout
-            # need to find an alternative to 'set' for POSIX
-            env_cmd = '"{}" && set'.format(activate_file)
-            env_output = sp.check_output(env_cmd, universal_newlines=True)
-            # parse the env dumped to stdout
-            extend_env = dict(line.split('=', maxsplit=1) for line in env_output.splitlines())
-            extend_env["PYTHONIOENCODING"] = "utf-8"
-        else:
+        if activate_file.endswith('.py'):
+            # use default method
             extend_env = {
                 "PATH": directory + path_separator + "{PATH}",
                 "SUBLIMEREPL_ACTIVATE_THIS": activate_file,
                 "PYTHONIOENCODING": "utf-8",
             }
+        else:
+            # run the activate script and print the env to stdout
+            if os.name == 'nt':
+                # activate file should be `activate.bat`
+                env_cmd = '"{}" && set'.format(activate_file)
+                env_output = sp.check_output(env_cmd, universal_newlines=True)
+            elif os.name == 'posix':
+                # use the `activate` file
+                env_cmd = 'source "{}" && env'.format(activate_file)
+                env_output = sp.check_output(env_cmd, universal_newlines=True, shell=True)
+
+            # parse the env dumped to stdout
+            extend_env = dict(line.split('=', maxsplit=1) for line in env_output.splitlines())
+            extend_env["PYTHONIOENCODING"] = "utf-8"
+
         self.window.run_command("repl_open",
             {
                 "encoding":"utf8",
@@ -141,7 +147,6 @@ VENV_SCAN_CODE = """
 import os
 import glob
 import os.path
-
 venv_paths = channel.receive()
 bin_dir = "Scripts" if os.name == "nt" else "bin"
 found_dirs = set()
@@ -149,10 +154,8 @@ for venv_path in venv_paths:
     p = os.path.expanduser(venv_path)
     pattern = os.path.join(p, "*", bin_dir, "activate_this.py")
     found_dirs.update(map(os.path.dirname, glob.glob(pattern)))
-
 channel.send(found_dirs)
 channel.close()
-
 """
 
 class ExecnetVirtualenvRepl(sublime_plugin.WindowCommand):
@@ -205,7 +208,6 @@ class ExecnetVirtualenvRepl(sublime_plugin.WindowCommand):
                   "activate_file": activate_file,
                   "ps1": ps1
                  })
-
 
 
 
